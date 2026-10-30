@@ -106,6 +106,7 @@ export const NET = {
   maxPendingInputs: 90,
   maxInputsPerTick: 4,
   inputBudgetCap: 8,
+  inputBudgetPerTick: 1.1, // a touch above real time so server timer jitter can't build a backlog
   idleTicksBeforeAutoStep: 6,
   smoothCorrectionRate: 14,
   snapCorrectionDistance: 4,
