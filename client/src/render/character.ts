@@ -219,7 +219,186 @@ function buildBaursak(): Built {
   return { body, eyes, feet: legs, hand: addHand(body, 0xa66421, 0.58, 0.68, -0.3), height: 1.4 };
 }
 
-const BUILDERS: Record<CharacterId, () => Built> = { pelmen: buildPelmen, cactus: buildCactus, duck: buildDuck, toaster: buildToaster, jelly: buildJelly, baursak: buildBaursak };
+// ---- friends as big-headed caricatures --------------------------------------------
+const SKIN = 0xf2c6a0;
+const HEAD_Y = 1.02;
+const HEAD_R = 0.56;
+
+interface FaceOpts {
+  shirt: number;
+  headScaleX?: number;
+  eyeSquint?: number;
+  glance?: number;
+}
+
+function buildCaricatureBase(o: FaceOpts): Built {
+  const body = new THREE.Group();
+  const torso = part(cap(0.3, 0.2), o.shirt);
+  torso.position.y = 0.42;
+  body.add(torso);
+  const head = part(sph(HEAD_R, 24, 16), SKIN);
+  head.scale.set(o.headScaleX ?? 1, 1.04, 0.96);
+  head.position.y = HEAD_Y;
+  body.add(head);
+  for (const side of [-1, 1]) {
+    const ear = part(sph(0.12, 10, 8), SKIN);
+    ear.scale.set(0.6, 1, 0.8);
+    ear.position.set(side * HEAD_R * (o.headScaleX ?? 1), HEAD_Y - 0.02, 0.02);
+    body.add(ear);
+  }
+  const nose = part(sph(0.09, 10, 8), 0xe8b48c, false);
+  nose.scale.set(1.1, 0.9, 1);
+  nose.position.set(0, HEAD_Y - 0.09, -HEAD_R * 0.97);
+  body.add(nose);
+  const eyes = addEyes(body, HEAD_Y + 0.05, -HEAD_R * 0.8, 0.21, 0.125);
+  for (const e of eyes) {
+    e.pivot.children[0].scale.y = o.eyeSquint ?? 0.7;
+    e.pupil.position.x = o.glance ?? 0;
+  }
+  return { body, eyes, feet: addFeet(body, 0x2a2a35, 0.2, 0.08), hand: addHand(body, SKIN, 0.42, 0.42, -0.25), height: 1.65 };
+}
+
+function addMouth(body: THREE.Group, tilt = 0, width = 0.12, color = 0xd98a8a): void {
+  const lips = new THREE.Mesh(sph(width, 10, 6), toon(color));
+  lips.scale.set(1, 0.32, 0.5);
+  lips.position.set(0, HEAD_Y - 0.26, -HEAD_R * 0.86);
+  lips.rotation.z = tilt;
+  body.add(lips);
+}
+
+function addBrows(body: THREE.Group, color: number, angle: number): void {
+  for (const side of [-1, 1]) {
+    const brow = new THREE.Mesh(box(0.2, 0.045, 0.05), toon(color));
+    brow.position.set(side * 0.21, HEAD_Y + 0.21, -HEAD_R * 0.88);
+    brow.rotation.z = side * angle;
+    body.add(brow);
+  }
+}
+
+function addGlasses(body: THREE.Group, w = 0.2, h = 0.15): void {
+  const frame = toon(DARK);
+  const y = HEAD_Y + 0.05;
+  const z = -HEAD_R * 0.95;
+  const bar = (sx: number, sy: number, sz: number, px: number, py: number, pz: number): void => {
+    const m = new THREE.Mesh(box(sx, sy, sz), frame);
+    m.position.set(px, py, pz);
+    body.add(m);
+  };
+  const t = 0.035;
+  for (const side of [-1, 1]) {
+    const cx = side * 0.2;
+    bar(w + t, t, t, cx, y + h / 2, z);
+    bar(w + t, t, t, cx, y - h / 2, z);
+    bar(t, h, t, cx - w / 2, y, z);
+    bar(t, h, t, cx + w / 2, y, z);
+    bar(t, t, 0.5, side * (0.2 + w / 2), y + h / 2, z + 0.25);
+  }
+  bar(0.09, t, t, 0, y + 0.03, z);
+}
+
+/** Dark hair mass plus a mop of cones; each lock is [x, y, z, tiltX, tiltZ, length]. */
+function addLocks(body: THREE.Group, color: number, locks: readonly (readonly [number, number, number, number, number, number])[], r = 0.13): void {
+  for (const [x, y, z, rx, rz, len] of locks) {
+    const lock = part(cone(r, len, 8), color);
+    lock.position.set(x, HEAD_Y + y, z);
+    lock.rotation.set(rx, 0, rz);
+    body.add(lock);
+  }
+}
+
+function addHairCap(body: THREE.Group, color: number, r = HEAD_R * 1.06, lift = 0.04): void {
+  const hair = part(new THREE.SphereGeometry(r, 22, 12, 0, Math.PI * 2, 0, Math.PI * 0.42), color);
+  hair.position.set(0, HEAD_Y + lift, 0.03);
+  hair.rotation.x = 0.32; // front edge up off the forehead, back edge down the neck
+  body.add(hair);
+}
+
+function buildFringe(): Built {
+  const b = buildCaricatureBase({ shirt: 0x34452f, eyeSquint: 0.72 });
+  const HAIR = 0x2a211d;
+  addHairCap(b.body, HAIR);
+  // The signature uneven, messy fringe hanging into the eyes
+  addLocks(b.body, HAIR, [
+    [-0.34, 0.3, -0.4, Math.PI - 0.25, -0.2, 0.26],
+    [-0.16, 0.33, -0.46, Math.PI - 0.2, -0.05, 0.3],
+    [0.03, 0.34, -0.48, Math.PI - 0.15, 0.1, 0.24],
+    [0.2, 0.33, -0.46, Math.PI - 0.2, 0.05, 0.32],
+    [0.37, 0.28, -0.38, Math.PI - 0.25, 0.25, 0.26],
+    [-0.5, 0.05, -0.1, Math.PI, -0.1, 0.34],
+    [0.5, 0.05, -0.1, Math.PI, 0.1, 0.34],
+  ]);
+  addBrows(b.body, HAIR, -0.12);
+  addMouth(b.body, 0, 0.13);
+  // Chunky knit collar
+  const collar = part(new THREE.TorusGeometry(0.27, 0.075, 8, 18), 0x45583f);
+  collar.rotation.x = Math.PI / 2;
+  collar.position.y = 0.66;
+  b.body.add(collar);
+  return b;
+}
+
+function buildProf(): Built {
+  const b = buildCaricatureBase({ shirt: 0x24242c, eyeSquint: 0.62, glance: 0.02 });
+  const HAIR = 0x2b211c;
+  const SUN = 0xa8733a; // the sunlit tips
+  addHairCap(b.body, HAIR);
+  addLocks(b.body, HAIR, [
+    [-0.3, 0.52, -0.1, -0.2, 0.45, 0.42],
+    [0.0, 0.62, -0.12, -0.25, 0, 0.46],
+    [0.3, 0.5, -0.1, -0.2, -0.5, 0.42],
+    [-0.15, 0.55, 0.2, 0.3, 0.3, 0.42],
+    [0.2, 0.55, 0.2, 0.3, -0.3, 0.42],
+    [-0.38, 0.34, -0.36, Math.PI - 0.5, -0.3, 0.2],
+    [0.36, 0.32, -0.36, Math.PI - 0.5, 0.3, 0.2],
+  ]);
+  addLocks(b.body, SUN, [
+    [-0.1, 0.72, -0.2, -0.35, 0.15, 0.2],
+    [0.17, 0.72, -0.16, -0.3, -0.25, 0.2],
+    [0.42, 0.56, -0.05, -0.1, -0.75, 0.2],
+  ], 0.06);
+  addGlasses(b.body);
+  addBrows(b.body, HAIR, 0.08);
+  addMouth(b.body, 0.14, 0.12); // that small smirk
+  return b;
+}
+
+function buildCapGuy(): Built {
+  const b = buildCaricatureBase({ shirt: 0x1f1f26, headScaleX: 1.1, eyeSquint: 0.68, glance: 0.04 });
+  const CAP = 0x17171d;
+  const dome = part(new THREE.SphereGeometry(HEAD_R * 1.1, 22, 12, 0, Math.PI * 2, 0, Math.PI * 0.5), CAP);
+  dome.scale.x = 1.08;
+  dome.position.set(0, HEAD_Y + 0.14, 0.02);
+  b.body.add(dome);
+  const button_ = new THREE.Mesh(sph(0.05, 8, 6), toon(0x33333d));
+  button_.position.set(0, HEAD_Y + 0.76, 0.02);
+  b.body.add(button_);
+  const brim = part(cyl(0.42, 0.42, 0.05, 24), CAP);
+  brim.scale.set(1.05, 1, 1.15);
+  brim.rotation.x = 0.18;
+  brim.position.set(0.08, HEAD_Y + 0.2, -0.56);
+  b.body.add(brim);
+  // Short sideburns under the cap
+  addLocks(b.body, 0x2a211d, [
+    [-0.6, 0.02, 0.02, Math.PI, 0, 0.2],
+    [0.6, 0.02, 0.02, Math.PI, 0, 0.2],
+  ], 0.06);
+  addGlasses(b.body, 0.21, 0.15);
+  addMouth(b.body, -0.1, 0.12);
+  // Chubby cheek squished into a fist: forever lost in thought
+  const cheek = part(sph(0.17, 12, 8), 0xf0bb95, false);
+  cheek.position.set(-0.45, HEAD_Y - 0.22, -0.25);
+  b.body.add(cheek);
+  const fist = part(sph(0.15, 10, 8), SKIN);
+  fist.position.set(-0.55, HEAD_Y - 0.42, -0.28);
+  b.body.add(fist);
+  const forearm = part(cap(0.075, 0.32), 0xf2c6a0);
+  forearm.rotation.z = 0.5;
+  forearm.position.set(-0.65, HEAD_Y - 0.66, -0.22);
+  b.body.add(forearm);
+  return b;
+}
+
+const BUILDERS: Record<CharacterId, () => Built> = { fringe: buildFringe, prof: buildProf, capguy: buildCapGuy, pelmen: buildPelmen, cactus: buildCactus, duck: buildDuck, toaster: buildToaster, jelly: buildJelly, baursak: buildBaursak };
 
 // ---- weapon models -----------------------------------------------------------------
 export function buildWeaponModel(w: WeaponId): THREE.Group {

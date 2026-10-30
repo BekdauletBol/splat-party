@@ -78,6 +78,14 @@ describe('motor', () => {
     expect(a.z).toBeCloseTo(b.z, 6);
   });
 
+  it('capguy dash recharges twice as fast', () => {
+    const a = makeMotorState(-24, 2, 24);
+    const b = makeMotorState(-24, 2, 24);
+    stepMotor(a, { ...idle, b: Btn.Dash }, 'cactus', mw);
+    stepMotor(b, { ...idle, b: Btn.Dash }, 'capguy', mw);
+    expect(b.dashCd).toBe(Math.round(a.dashCd / 2));
+  });
+
   it('bubble floats the player upward without control', () => {
     const s = makeMotorState(-24, 2, 24);
     settle(s);

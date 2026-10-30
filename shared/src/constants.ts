@@ -222,7 +222,7 @@ export const WEAPONS: WeaponDef[] = [
   { id: WeaponId.Bubble, name: 'Пузырь-пушка', short: 'Пузырь', icon: '🫧', cooldownTicks: 36, damage: 5, spread: 0.01, pickupAmmo: 6, range: 0, projectileSpeed: 15, projectileRadius: 0.55, projectileGravity: -1, projectileTtlTicks: 90, explosionRadius: 0, knockback: 0 },
 ];
 
-export type CharacterId = 'pelmen' | 'cactus' | 'duck' | 'toaster' | 'jelly' | 'baursak';
+export type CharacterId = 'pelmen' | 'cactus' | 'duck' | 'toaster' | 'jelly' | 'baursak' | 'fringe' | 'prof' | 'capguy';
 
 export interface CharacterDef {
   id: CharacterId;
@@ -236,6 +236,10 @@ export interface CharacterDef {
   bouncy: boolean;
   thorns: boolean;
   toastDash: boolean;
+  /** Multiplies weapon spread; below 1 is more accurate. */
+  spreadMul?: number;
+  /** Multiplies the dash cooldown. */
+  dashCdMul?: number;
 }
 
 export const CHARACTERS: Record<CharacterId, CharacterDef> = {
@@ -244,6 +248,9 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
   duck: { id: 'duck', name: 'Утка в каске', passive: 'Двойной прыжок', hp: 100, speedMul: 1, knockbackMul: 1, jumpMul: 1, maxJumps: 2, bouncy: false, thorns: false, toastDash: false },
   toaster: { id: 'toaster', name: 'Тостер-бот', passive: 'Дэш выбрасывает прыгучий тост', hp: 100, speedMul: 1, knockbackMul: 1, jumpMul: 1, maxJumps: 1, bouncy: false, thorns: false, toastDash: true },
   jelly: { id: 'jelly', name: 'Желе', passive: 'Прыгает выше и пружинит при приземлении', hp: 100, speedMul: 1, knockbackMul: 1.15, jumpMul: 1.3, maxJumps: 1, bouncy: true, thorns: false, toastDash: false },
+  fringe: { id: 'fringe', name: 'Нуралы', passive: 'Несгибаемый: больше здоровья и меньше отлетает', hp: 115, speedMul: 1, knockbackMul: 0.8, jumpMul: 1, maxJumps: 1, bouncy: false, thorns: false, toastDash: false },
+  prof: { id: 'prof', name: 'Султан Ориг', passive: 'Всё рассчитал: стреляет заметно точнее', hp: 100, speedMul: 1, knockbackMul: 1, jumpMul: 1, maxJumps: 1, bouncy: false, thorns: false, toastDash: false, spreadMul: 0.5 },
+  capguy: { id: 'capguy', name: 'Султан Шым', passive: 'Задумался и ускорился: дэш перезаряжается вдвое быстрее', hp: 100, speedMul: 1, knockbackMul: 1, jumpMul: 1, maxJumps: 1, bouncy: false, thorns: false, toastDash: false, dashCdMul: 0.5 },
   baursak: { id: 'baursak', name: 'Баурсак', passive: 'Самый быстрый, но хрупкий', hp: 75, speedMul: 1.22, knockbackMul: 1.1, jumpMul: 1, maxJumps: 1, bouncy: false, thorns: false, toastDash: false },
 };
 export const CHARACTER_IDS = Object.keys(CHARACTERS) as CharacterId[];

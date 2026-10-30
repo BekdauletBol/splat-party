@@ -86,7 +86,7 @@ export class Combat {
   private fireHitscan(a: Actor, def: WeaponDef, input: PlayerInput): void {
     const st = this.room.state;
     const o = muzzleOf(a.motor.x, a.motor.y, a.motor.z, input.y);
-    const d = this.spreadDir(input, def.spread);
+    const d = this.spreadDir(input, def.spread * (a.def.spreadMul ?? 1));
     const wallDist = raycastStatic(this.room.mw, o, d, def.range);
     const maxDist = wallDist >= 0 ? wallDist : def.range;
     // Lag compensation: test targets where the shooter saw them, bounded so a
@@ -122,7 +122,7 @@ export class Combat {
 
   private fireProjectile(a: Actor, def: WeaponDef, input: PlayerInput): void {
     const o = muzzleOf(a.motor.x, a.motor.y, a.motor.z, input.y);
-    const d = this.spreadDir(input, def.spread);
+    const d = this.spreadDir(input, def.spread * (a.def.spreadMul ?? 1));
     this.spawnProjectile(a, def.id as unknown as ProjKind, o, d, def.projectileSpeed, def.projectileGravity, def.projectileRadius, def.projectileTtlTicks, false);
     this.room.emit({ t: 'launch', by: a.s.id, weapon: def.id });
   }

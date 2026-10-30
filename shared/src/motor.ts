@@ -178,7 +178,7 @@ export function stepMotor(s: MotorState, input: Pick<PlayerInput, 'mx' | 'mz' | 
     const dx = useWish ? wishX / Math.hypot(wishX, wishZ) : -sin;
     const dz = useWish ? wishZ / Math.hypot(wishX, wishZ) : -cos;
     s.dashT = PHYS.dashTicks;
-    s.dashCd = PHYS.dashCooldownTicks;
+    s.dashCd = Math.round(PHYS.dashCooldownTicks * (char.dashCdMul ?? 1));
     s.dashX = dx;
     s.dashZ = dz;
     ev.dashed = true;
