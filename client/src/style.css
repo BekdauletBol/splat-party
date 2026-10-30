@@ -1,0 +1,6 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #7ed6ff; font-family: 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif; color: #1d1b2e; user-select: none; }
+#game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+#ui { position: fixed; inset: 0; pointer-events: none; }
+#ui .interactive, #ui button, #ui input, #ui select { pointer-events: auto; }
+.hint { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); padding: 10px 18px; background: #fff; border: 3px solid #1d1b2e; border-radius: 14px; font-weight: 700; }

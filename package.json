@@ -1,0 +1,21 @@
+{
+  "name": "splat-party",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": { "node": ">=20.19" },
+  "workspaces": ["shared", "server", "client", "tools/bot-client"],
+  "scripts": {
+    "dev": "concurrently -k -n server,client -c cyan,magenta \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build": "npm run build -w client && npm run build -w server",
+    "start": "npm run start -w server",
+    "test": "vitest run",
+    "typecheck": "tsc -p shared --noEmit && tsc -p server --noEmit && tsc -p client --noEmit && tsc -p tools/bot-client --noEmit",
+    "bots": "npm run start -w tools/bot-client --"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "typescript": "~5.8.0",
+    "vitest": "^3.2.0"
+  }
+}
