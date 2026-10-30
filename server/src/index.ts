@@ -5,11 +5,13 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import { Server } from 'colyseus';
 import express from 'express';
-import { ROOM_NAME, SERVER_PORT, initPhysics } from '@splat/shared';
+import { MATCH, ROOM_NAME, SERVER_PORT, initPhysics } from '@splat/shared';
 import { SplatRoom } from './SplatRoom';
 
 async function main(): Promise<void> {
   await initPhysics();
+  // Short matches for automated flow checks.
+  if (process.env.SPLAT_MATCH_SEC) MATCH.durationSec = Number(process.env.SPLAT_MATCH_SEC);
   const app = express();
   const here = dirname(fileURLToPath(import.meta.url));
   const clientDist = join(here, '../../client/dist');

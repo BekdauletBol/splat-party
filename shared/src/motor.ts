@@ -326,6 +326,12 @@ export function raycastStatic(mw: MotorWorld, o: { x: number; y: number; z: numb
   return hit ? hit.timeOfImpact : -1;
 }
 
+/** Downward ray for the paint surface scan. Same result on client and server. */
+export function surfaceRay(mw: MotorWorld, x: number, z: number, startY: number, length: number): { y: number; nx: number; ny: number; nz: number } | null {
+  const hit = mw.world.castRayAndGetNormal(new RAPIER.Ray({ x, y: startY, z }, { x: 0, y: -1, z: 0 }), length, true, RAPIER.QueryFilterFlags.EXCLUDE_DYNAMIC, GROUP_STATIC_FILTER, undefined, undefined, (c) => c.handle !== mw.probe.handle);
+  return hit ? { y: startY - hit.timeOfImpact, nx: hit.normal.x, ny: hit.normal.y, nz: hit.normal.z } : null;
+}
+
 export function aimDirection(yaw: number, pitch: number): { x: number; y: number; z: number } {
   const c = Math.cos(pitch);
   return { x: -Math.sin(yaw) * c, y: Math.sin(pitch), z: -Math.cos(yaw) * c };

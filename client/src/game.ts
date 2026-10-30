@@ -1,7 +1,7 @@
 // In-match client: fixed-tick prediction, snapshot interpolation, camera, events.
 import * as THREE from 'three';
 import {
-  Btn, CAMERA, CAPSULE_FOOT, COMBAT, CharacterId, FFA_COLORS, GameEvent, MAPS, MODES, ModeId, MotorEvents, MotorWorld, NET, PlayerInput, ProjKind, RENDER, SnapPickup, SnapPlayer, TEAM_COLORS, TICK_DT, WEAPONS, WeaponId,
+  Btn, CAMERA, CAPSULE_FOOT, COMBAT, CharacterId, FFA_COLORS, GameEvent, MAPS, MATCH, MODES, ModeId, MotorEvents, MotorWorld, NET, PlayerInput, ProjKind, RENDER, SnapPickup, SnapPlayer, TEAM_COLORS, TEAM_NAMES, TICK_DT, WEAPONS, WeaponId,
   aimDirection, buildMapWorld, muzzleOf, rayCapsule, raycastStatic,
 } from '@splat/shared';
 import { sfx } from './audio/sfx';
@@ -12,7 +12,10 @@ import { CharacterView, buildChicken, buildWeaponModel } from './render/characte
 import { Fx } from './render/fx';
 import { buildMapView, buildSky } from './render/mapView';
 import { part, toon } from './render/toon';
+import { PaintView } from './render/paintView';
+import { Quality, Settings, baseSensitivity } from './settings';
 import { Hud } from './ui/hud';
+import { quality as toonQuality, outlineMaterial } from './render/toon';
 
 interface Remote {
   view: CharacterView;
@@ -64,6 +67,11 @@ export class Game {
   private lastHp = -1;
   private aimYaw = 0;
   private aimPitch = 0;
+  private mode = 'ffa';
+  private quality: Quality = 'medium';
+  private paint: PaintView | null = null;
+  private hillZone: THREE.Mesh | null = null;
+  private matchObjects: THREE.Object3D[] = [];
   /** Latest authoritative copy of the local player. */
   me: SnapPlayer | undefined;
 
@@ -89,13 +97,77 @@ export class Game {
     this.camera.updateProjectionMatrix();
   };
 
+  /** Tear the previous match's scene down and build the map for a new one. */
+  enterMatch(mapId: string, mode: string): void {
+    for (const o of [...this.matchObjects]) this.scene.remove(o);
+    this.matchObjects.length = 0;
+    for (const v of [...this.propViews.values(), ...this.pickupViews.values(), ...this.projViews.values()]) this.scene.remove(v);
+    this.propViews.clear();
+    this.pickupViews.clear();
+    this.projViews.clear();
+    for (const r of this.remotes.values()) r.view.dispose();
+    this.remotes.clear();
+    this.net.snapshots.length = 0;
+    this.me = undefined;
+    this.lastHp = -1;
+    this.mode = mode;
+    this.loadMap(mapId);
+    this.recent.length = 0;
+    this.start();
+  }
+
+  private addToScene(...objs: THREE.Object3D[]): void {
+    this.scene.add(...objs);
+    this.matchObjects.push(...objs);
+  }
+
+  stop(): void {
+    this.running = false;
+    this.hud.show(false);
+  }
+
+  get isRunning(): boolean {
+    return this.running;
+  }
+
+  paintFull(cells: number[]): void {
+    this.paint?.applyFull(cells);
+  }
+  paintDelta(flat: number[]): void {
+    this.paint?.applyDelta(flat);
+  }
+
+  applySettings(s: Settings): void {
+    this.input.sensitivity = baseSensitivity * s.sensitivity;
+    this.setQuality(s.quality);
+  }
+
+  setQuality(q: Quality): void {
+    this.quality = q;
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, RENDER.pixelRatioCap[q]));
+    this.resize();
+    this.renderer.shadowMap.enabled = q !== 'low';
+    if (this.sun) {
+      this.sun.castShadow = q !== 'low';
+      const size = RENDER.shadowMapSize[q] || 512;
+      if (this.sun.shadow.mapSize.x !== size) {
+        this.sun.shadow.mapSize.set(size, size);
+        this.sun.shadow.map?.dispose();
+        this.sun.shadow.map = null;
+      }
+    }
+    toonQuality.outlines = q !== 'low';
+    outlineMaterial.visible = q !== 'low';
+    this.fx.particleScale = q === 'low' ? 0.5 : 1;
+  }
+
   loadMap(id: string): void {
     const map = MAPS[id];
+    if (this.mw) this.mw.world.free();
     this.mw = buildMapWorld(map);
     this.scene.fog = new THREE.Fog(map.fog, 70, 240);
     this.mapGroup = buildMapView(map);
-    this.scene.add(buildSky(map), this.mapGroup);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0xb0a890, 1.5));
+    this.addToScene(buildSky(map), this.mapGroup, new THREE.HemisphereLight(0xffffff, 0xb0a890, 1.5));
     const sun = new THREE.DirectionalLight(0xffffff, 2.2);
     sun.position.set(30, 60, 20);
     sun.castShadow = true;
@@ -103,13 +175,31 @@ export class Game {
     const f = RENDER.shadowFrustum + 10;
     Object.assign(sun.shadow.camera, { left: -f, right: f, top: f, bottom: -f, far: 160 });
     sun.shadow.bias = -0.0005;
-    this.scene.add(sun);
+    this.addToScene(sun, sun.target);
     this.sun = sun;
+    this.setQuality(this.quality);
     this.predictor = new Predictor(this.mw, 'pelmen');
+    this.paint = null;
+    if (this.mode === 'paint') {
+      this.paint = new PaintView(this.mw);
+      this.addToScene(this.paint.mesh);
+    }
+    if (this.mode === 'koth') {
+      const hill = map.hill;
+      const zone = new THREE.Mesh(
+        new THREE.CylinderGeometry(hill.radius, hill.radius, RENDER.hillZoneHeight, 40, 1, true),
+        new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false }),
+      );
+      zone.position.set(hill.p[0], hill.p[1] + RENDER.hillZoneHeight / 2, hill.p[2]);
+      this.hillZone = zone;
+      this.addToScene(zone);
+    } else this.hillZone = null;
   }
 
   start(): void {
+    if (this.running) return;
     this.running = true;
+    this.lastFrame = performance.now();
     this.hud.show(true);
     this.hud.setClickHint(!this.input.locked);
     requestAnimationFrame(this.frame);
@@ -120,6 +210,7 @@ export class Game {
   }
 
   private onSnapshot(s: Snapshot): void {
+    if (!this.running) return;
     const selfId = this.net.sessionId;
     this.me = s.players.get(selfId);
     if (this.me) {
@@ -399,6 +490,7 @@ export class Game {
       v: Math.max(0, Math.round(this.net.renderTick(now))),
     };
     const alive = this.me?.alive ?? true;
+    if (this.net.state.phase === 'countdown') input.b &= ~Btn.Fire;
     if (alive) this.onLocalMotor(this.predictor.step(input));
     else {
       this.predictor.pending.length = 0;
@@ -461,10 +553,48 @@ export class Game {
     const st = this.net.state;
     const tick = st.tick as number;
     this.hud.update(this.me, dt, tick);
+    this.updateTopHud(st);
     const last = this.net.snapshots[this.net.snapshots.length - 1];
     if (last) this.hud.scoreboard(this.input.scoreboard, [...last.players.values()], this.net.sessionId, MODES[st.mode as ModeId]?.teams ?? false);
     this.renderer.render(this.scene, this.camera);
   };
+
+  private updateTopHud(st: any): void {
+    const mode = st.mode as ModeId;
+    const pill = (team: number, text: string): string => `<span style="color:#${TEAM_COLORS[team].toString(16)}">${text}</span>`;
+    let a = '';
+    let b = '';
+    let obj = '';
+    if (st.phase === 'countdown') obj = `<span class="big-count">${st.countdown}</span>`;
+    switch (mode) {
+      case 'tdm':
+        a = pill(0, String(st.scoreA));
+        b = pill(1, String(st.scoreB));
+        if (!obj) obj = `Первыми до ${MATCH.tdmKillLimit}`;
+        break;
+      case 'paint': {
+        const total = st.paintTotal || 1;
+        a = pill(0, `${Math.round((100 * st.scoreA) / total)}%`);
+        b = pill(1, `${Math.round((100 * st.scoreB) / total)}%`);
+        if (!obj) obj = 'Закрашивай пол!';
+        break;
+      }
+      case 'koth': {
+        a = pill(0, String(st.scoreA));
+        b = pill(1, String(st.scoreB));
+        const hold = st.hillContested ? 'Гора оспаривается!' : st.hillOwner >= 0 ? `Гору держат: ${TEAM_NAMES[st.hillOwner]}` : 'Займи гору!';
+        if (!obj) obj = hold;
+        if (this.hillZone) {
+          const color = st.hillContested ? 0xffd23f : st.hillOwner >= 0 ? TEAM_COLORS[st.hillOwner] : 0xffffff;
+          (this.hillZone.material as THREE.MeshBasicMaterial).color.setHex(color);
+        }
+        break;
+      }
+      default:
+        if (!obj) obj = `Первый до ${MATCH.ffaKillLimit} киллов`;
+    }
+    this.hud.setTop(st.timeLeft, a, b, obj);
+  }
 
   private updateEntities(now: number, dt: number): void {
     const selfId = this.net.sessionId;

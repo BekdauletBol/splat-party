@@ -100,6 +100,7 @@ export class GameState extends Schema {
   @type('uint8') countdown = 0;
   @type('int32') scoreA = 0;
   @type('int32') scoreB = 0;
+  @type('uint16') paintTotal = 0;
   @type('int8') hillOwner = -1;
   @type('boolean') hillContested = false;
   @type({ map: PlayerS }) players = new MapSchema<PlayerS>();

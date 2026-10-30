@@ -147,6 +147,7 @@ export const PAINT = {
   rayStartY: 60,
   rayLength: 90,
   minNormalY: 0.5,
+  verticalReach: 1.5,
 };
 
 export const PROPS = {
@@ -305,6 +306,7 @@ export const RENDER = {
   damageNumberLifeSec: 0.9,
   killfeedLifeSec: 6,
   hitmarkerSec: 0.14,
+  hillZoneHeight: 5,
 };
 
 export const AUDIO = {
