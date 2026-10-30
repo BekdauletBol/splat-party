@@ -95,3 +95,5 @@ input:disabled, select:disabled { opacity: .6; }
 .vignette.on { opacity: 1; }
 .slot .wname { position: absolute; left: 0; right: 0; top: 16px; text-align: center; font-size: 11px; }
 .slot .ico { margin-top: 12px; }
+.slot .wname { position: absolute; left: 0; right: 0; top: 16px; text-align: center; font-size: 11px; }
+.slot .ico { margin-top: 12px; }

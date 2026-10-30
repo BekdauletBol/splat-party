@@ -36,7 +36,7 @@ export class Hud {
   constructor(parent: HTMLElement) {
     parent.insertAdjacentHTML('beforeend', html);
     this.root = this.$('hud');
-    this.$('weapons').innerHTML = WEAPONS.map((w, i) => `<div class="slot" id="slot${i}"><span class="key">${i + 1}</span><span class="ico">${w.icon}</span><span class="wname">${w.short}</span><span class="ammo" id="ammo${i}"></span></div>`).join('');
+    this.$('weapons').innerHTML = WEAPONS.map((w, i) => `<div class="slot" id="slot${i}"><span class="key">${i + 1}</span><span class="ico">${w.icon}</span><span class="wname">${w.short}</span><span class="wname">${w.short}</span><span class="ammo" id="ammo${i}"></span></div>`).join('');
   }
 
   show(on: boolean): void {
