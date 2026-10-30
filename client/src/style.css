@@ -91,3 +91,7 @@ input:disabled, select:disabled { opacity: .6; }
 .panel td:first-child, .panel th:first-child { text-align: left; }
 .panel tr.me { background: #ffd23f66; }
 @media (max-width: 640px) { .scoreboard { min-width: 0; width: calc(100% - 32px); } .health { width: 160px; } .dash { left: 190px; } }
+.vignette { position: absolute; inset: 0; opacity: 0; transition: opacity .25s; background: radial-gradient(circle, transparent 55%, #ff4fa3aa 100%); }
+.vignette.on { opacity: 1; }
+.slot .wname { position: absolute; left: 0; right: 0; top: 16px; text-align: center; font-size: 11px; }
+.slot .ico { margin-top: 12px; }

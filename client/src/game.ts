@@ -65,9 +65,13 @@ export class Game {
   private shake = 0;
   private zoom = 0;
   private lastHp = -1;
+  private lastCount = -1;
   private aimYaw = 0;
   private aimPitch = 0;
   private mode = 'ffa';
+  private fpsTime = 0;
+  private fpsFrames = 0;
+  fps = 0;
   private quality: Quality = 'medium';
   private paint: PaintView | null = null;
   private hillZone: THREE.Mesh | null = null;
@@ -508,7 +512,11 @@ export class Game {
     const r = this.remotes.get(this.net.sessionId);
     if (!r) return;
     if (ev.jumped || ev.doubleJumped || ev.padded) r.view.punch(-8);
-    if (ev.landed > COMBAT.landEventMinSpeed) r.view.land(ev.landed);
+    if (ev.landed > COMBAT.landEventMinSpeed) {
+      r.view.land(ev.landed);
+      this.fx.poof(this.predictor.state.x, this.predictor.state.y - CAPSULE_FOOT + 0.1, this.predictor.state.z, 4);
+      if (ev.landed > RENDER.heavyLandSpeed) this.shake = Math.max(this.shake, RENDER.shakeHit);
+    }
     if (ev.dashed) this.fx.poof(this.predictor.state.x, this.predictor.state.y - 0.5, this.predictor.state.z, 5);
     if (ev.jumped || ev.doubleJumped) sfx.play('jump', 0.45, ev.doubleJumped ? 1.3 : 1);
     if (ev.padded) sfx.play('pad', 0.7);
@@ -530,6 +538,7 @@ export class Game {
       const wall = raycastStatic(this.mw, m, d, def.range);
       const t = wall >= 0 ? wall : def.range;
       this.fx.tracer(m.x, m.y, m.z, m.x + d.x * t, m.y + d.y * t, m.z + d.z * t, colorForTeam(me));
+      this.fx.splat(m.x, m.y, m.z, colorForTeam(me), 1, 1.5);
     }
     sfx.play(LAUNCH_SOUND[me.weapon], me.weapon === WeaponId.Paint ? 0.4 : 0.9);
     this.remotes.get(this.net.sessionId)?.view.punch(0.6);
@@ -554,10 +563,24 @@ export class Game {
     const tick = st.tick as number;
     this.hud.update(this.me, dt, tick);
     this.updateTopHud(st);
+    this.watchFps(dt);
     const last = this.net.snapshots[this.net.snapshots.length - 1];
     if (last) this.hud.scoreboard(this.input.scoreboard, [...last.players.values()], this.net.sessionId, MODES[st.mode as ModeId]?.teams ?? false);
     this.renderer.render(this.scene, this.camera);
   };
+
+  /** If the machine can't hold the frame rate, step quality down once per drop. */
+  private watchFps(dt: number): void {
+    this.fpsTime += dt;
+    this.fpsFrames++;
+    if (this.fpsTime < RENDER.fpsWindowSec) return;
+    this.fps = this.fpsFrames / this.fpsTime;
+    this.fpsTime = 0;
+    this.fpsFrames = 0;
+    if (document.visibilityState !== 'visible' || this.fps >= RENDER.fpsLowThreshold) return;
+    if (this.quality === 'high') this.setQuality('medium');
+    else if (this.quality === 'medium') this.setQuality('low');
+  }
 
   private updateTopHud(st: any): void {
     const mode = st.mode as ModeId;
@@ -566,6 +589,10 @@ export class Game {
     let b = '';
     let obj = '';
     if (st.phase === 'countdown') obj = `<span class="big-count">${st.countdown}</span>`;
+    if (st.phase === 'countdown' && st.countdown !== this.lastCount) {
+      this.lastCount = st.countdown;
+      sfx.play('click', 1, 1.5);
+    }
     switch (mode) {
       case 'tdm':
         a = pill(0, String(st.scoreA));

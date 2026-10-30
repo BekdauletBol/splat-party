@@ -1,10 +1,12 @@
 // In-match HUD built from DOM: health, ammo, timer, score, killfeed, hit feedback.
 import { DeathCause, RENDER, SnapPlayer, TICK_RATE, WEAPONS, WEAPON_COUNT } from '@splat/shared';
 
-const CAUSE_ICON: Record<DeathCause, string> = { paint: '🎨', plunger: '🪠', chicken: '🐔', bubble: '🫧', toast: '🍞', thorns: '🌵', fall: '💨' };
+// Icon plus a word: the newest emoji are missing from older systems' fonts.
+const CAUSE_ICON: Record<DeathCause, string> = { paint: '🎨 краской', plunger: '🪠 вантузом', chicken: '🐔 курицей', bubble: '🫧 пузырём', toast: '🍞 тостом', thorns: '🌵 шипами', fall: '💨 в пропасть' };
 
 const html = `
 <div id="hud" class="hud hidden">
+  <div class="vignette" id="vignette"></div>
   <div class="crosshair" id="crosshair"></div>
   <div class="hitmarker" id="hitmarker"></div>
   <div class="top">
@@ -34,7 +36,7 @@ export class Hud {
   constructor(parent: HTMLElement) {
     parent.insertAdjacentHTML('beforeend', html);
     this.root = this.$('hud');
-    this.$('weapons').innerHTML = WEAPONS.map((w, i) => `<div class="slot" id="slot${i}"><span class="key">${i + 1}</span><span class="ico">${w.icon}</span><span class="ammo" id="ammo${i}"></span></div>`).join('');
+    this.$('weapons').innerHTML = WEAPONS.map((w, i) => `<div class="slot" id="slot${i}"><span class="key">${i + 1}</span><span class="ico">${w.icon}</span><span class="wname">${w.short}</span><span class="ammo" id="ammo${i}"></span></div>`).join('');
   }
 
   show(on: boolean): void {
@@ -61,7 +63,9 @@ export class Hud {
       this.$('hp-label').textContent = `❤ ${me.hp}`;
       const fill = this.$('hp-fill');
       fill.style.width = `${(100 * me.hp) / me.maxHp}%`;
-      fill.style.background = me.hp / me.maxHp < 0.3 ? '#f25c54' : '#7ae582';
+      const low = me.alive && me.hp / me.maxHp < 0.3;
+      fill.style.background = low ? '#f25c54' : '#7ae582';
+      this.$('vignette').classList.toggle('on', low);
       const ammo = [Infinity, me.ammo1, me.ammo2, me.ammo3];
       for (let i = 0; i < WEAPON_COUNT; i++) {
         this.$(`ammo${i}`).textContent = ammo[i] === Infinity ? '∞' : String(ammo[i]);

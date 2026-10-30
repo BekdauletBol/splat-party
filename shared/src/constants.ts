@@ -200,6 +200,7 @@ export const WEAPON_COUNT = 4;
 export interface WeaponDef {
   id: WeaponId;
   name: string;
+  short: string;
   icon: string;
   cooldownTicks: number;
   damage: number;
@@ -215,10 +216,10 @@ export interface WeaponDef {
 }
 
 export const WEAPONS: WeaponDef[] = [
-  { id: WeaponId.Paint, name: 'Краскострел', icon: '🎨', cooldownTicks: 3, damage: 9, spread: 0.022, pickupAmmo: -1, range: 80, projectileSpeed: 0, projectileRadius: 0, projectileGravity: 0, projectileTtlTicks: 0, explosionRadius: 0, knockback: 1 },
-  { id: WeaponId.Plunger, name: 'Вантузомёт', icon: '🪠', cooldownTicks: 24, damage: 15, spread: 0.005, pickupAmmo: 8, range: 0, projectileSpeed: 32, projectileRadius: 0.35, projectileGravity: 6, projectileTtlTicks: 60, explosionRadius: 0, knockback: 0 },
-  { id: WeaponId.Chicken, name: 'Куриная базука', icon: '🐔', cooldownTicks: 30, damage: 70, spread: 0, pickupAmmo: 6, range: 0, projectileSpeed: 17, projectileRadius: 0.45, projectileGravity: 0, projectileTtlTicks: 120, explosionRadius: 5, knockback: 1 },
-  { id: WeaponId.Bubble, name: 'Пузырь-пушка', icon: '🫧', cooldownTicks: 36, damage: 5, spread: 0.01, pickupAmmo: 6, range: 0, projectileSpeed: 15, projectileRadius: 0.55, projectileGravity: -1, projectileTtlTicks: 90, explosionRadius: 0, knockback: 0 },
+  { id: WeaponId.Paint, name: 'Краскострел', short: 'Краска', icon: '🎨', cooldownTicks: 3, damage: 9, spread: 0.022, pickupAmmo: -1, range: 80, projectileSpeed: 0, projectileRadius: 0, projectileGravity: 0, projectileTtlTicks: 0, explosionRadius: 0, knockback: 1 },
+  { id: WeaponId.Plunger, name: 'Вантузомёт', short: 'Вантуз', icon: '🪠', cooldownTicks: 24, damage: 15, spread: 0.005, pickupAmmo: 8, range: 0, projectileSpeed: 32, projectileRadius: 0.35, projectileGravity: 6, projectileTtlTicks: 60, explosionRadius: 0, knockback: 0 },
+  { id: WeaponId.Chicken, name: 'Куриная базука', short: 'Курица', icon: '🐔', cooldownTicks: 30, damage: 70, spread: 0, pickupAmmo: 6, range: 0, projectileSpeed: 17, projectileRadius: 0.45, projectileGravity: 0, projectileTtlTicks: 120, explosionRadius: 5, knockback: 1 },
+  { id: WeaponId.Bubble, name: 'Пузырь-пушка', short: 'Пузырь', icon: '🫧', cooldownTicks: 36, damage: 5, spread: 0.01, pickupAmmo: 6, range: 0, projectileSpeed: 15, projectileRadius: 0.55, projectileGravity: -1, projectileTtlTicks: 90, explosionRadius: 0, knockback: 0 },
 ];
 
 export type CharacterId = 'pelmen' | 'cactus' | 'duck' | 'toaster' | 'jelly' | 'baursak';
@@ -307,6 +308,9 @@ export const RENDER = {
   killfeedLifeSec: 6,
   hitmarkerSec: 0.14,
   hillZoneHeight: 5,
+  heavyLandSpeed: 22,
+  fpsWindowSec: 5,
+  fpsLowThreshold: 40,
 };
 
 export const AUDIO = {
