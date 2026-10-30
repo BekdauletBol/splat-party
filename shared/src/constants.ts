@@ -248,7 +248,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
   duck: { id: 'duck', name: 'Утка в каске', passive: 'Двойной прыжок', hp: 100, speedMul: 1, knockbackMul: 1, jumpMul: 1, maxJumps: 2, bouncy: false, thorns: false, toastDash: false },
   toaster: { id: 'toaster', name: 'Тостер-бот', passive: 'Дэш выбрасывает прыгучий тост', hp: 100, speedMul: 1, knockbackMul: 1, jumpMul: 1, maxJumps: 1, bouncy: false, thorns: false, toastDash: true },
   jelly: { id: 'jelly', name: 'Желе', passive: 'Прыгает выше и пружинит при приземлении', hp: 100, speedMul: 1, knockbackMul: 1.15, jumpMul: 1.3, maxJumps: 1, bouncy: true, thorns: false, toastDash: false },
-  fringe: { id: 'fringe', name: 'Нуралы', passive: 'Несгибаемый: больше здоровья и меньше отлетает', hp: 115, speedMul: 1, knockbackMul: 0.8, jumpMul: 1, maxJumps: 1, bouncy: false, thorns: false, toastDash: false },
+  fringe: { id: 'fringe', name: 'Нуралеле', passive: 'Несгибаемый: больше здоровья и меньше отлетает', hp: 115, speedMul: 1, knockbackMul: 0.8, jumpMul: 1, maxJumps: 1, bouncy: false, thorns: false, toastDash: false },
   prof: { id: 'prof', name: 'Султан Ориг', passive: 'Всё рассчитал: стреляет заметно точнее', hp: 100, speedMul: 1, knockbackMul: 1, jumpMul: 1, maxJumps: 1, bouncy: false, thorns: false, toastDash: false, spreadMul: 0.5 },
   capguy: { id: 'capguy', name: 'Султан Шым', passive: 'Задумался и ускорился: дэш перезаряжается вдвое быстрее', hp: 100, speedMul: 1, knockbackMul: 1, jumpMul: 1, maxJumps: 1, bouncy: false, thorns: false, toastDash: false, dashCdMul: 0.5 },
   baursak: { id: 'baursak', name: 'Баурсак', passive: 'Самый быстрый, но хрупкий', hp: 75, speedMul: 1.22, knockbackMul: 1.1, jumpMul: 1, maxJumps: 1, bouncy: false, thorns: false, toastDash: false },
