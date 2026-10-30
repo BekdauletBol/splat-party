@@ -273,6 +273,8 @@ export const BOT = {
   pickupSeekRange: 22,
   waypointReach: 1.6,
   stuckTicks: 45,
+  ledgeLookAhead: 2,
+  ledgeMaxDrop: 8,
   stuckMoveEpsilon: 0.5,
   thinkEveryTicks: 3,
   healthRetreatCooldownTicks: 120,

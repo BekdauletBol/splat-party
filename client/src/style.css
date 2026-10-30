@@ -44,3 +44,4 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #7ed6ff; fon
 .scoreboard tr.me { background: #ffd23f33; }
 .scoreboard tr.team-a td:first-child { color: #ff8cc4; }
 .scoreboard tr.team-b td:first-child { color: #7fdcff; }
+.lil-gui { pointer-events: auto; }

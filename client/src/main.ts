@@ -2,6 +2,7 @@
 import { initPhysics } from '@splat/shared';
 import { Game } from './game';
 import { Connection } from './net/connection';
+import { createDevPanel } from './ui/devpanel';
 
 const params = new URLSearchParams(location.search);
 
@@ -10,7 +11,7 @@ async function start(): Promise<void> {
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   const ui = document.getElementById('ui') as HTMLElement;
   const net = new Connection();
-  const opts = { nick: `Игрок${Math.floor(Math.random() * 900 + 100)}`, char: 'pelmen' };
+  const opts = { nick: `Игрок${Math.floor(Math.random() * 900 + 100)}`, char: params.get('char') ?? 'pelmen' };
   const code = params.get('room');
   if (code) await net.join(code.toUpperCase(), opts);
   else await net.create(opts);
@@ -19,6 +20,7 @@ async function start(): Promise<void> {
   const game = new Game(canvas, net, ui);
   game.loadMap(net.state.map);
   game.start();
+  if (params.has('dev')) createDevPanel(net);
   Object.assign(window, { __game: game, __net: net });
 }
 

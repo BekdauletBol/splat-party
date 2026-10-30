@@ -151,6 +151,17 @@ export class Bots {
     }
     if (goal?.jump && a.motor.grounded) b |= Btn.Jump;
 
+    // Ledge check: don't chase people straight off the map (panic-jump sometimes).
+    if (mz !== 0 && a.motor.grounded) {
+      const fx = x - Math.sin(moveYaw) * BOT.ledgeLookAhead;
+      const fz = z - Math.cos(moveYaw) * BOT.ledgeLookAhead;
+      if (raycastStatic(this.room.mw, { x: fx, y: y + 1, z: fz }, { x: 0, y: -1, z: 0 }, BOT.ledgeMaxDrop) < 0) {
+        mz = 0;
+        mx = mind.strafe;
+        mind.route.length = 0;
+      }
+    }
+
     // Stuck detection: jump, then pick a new route.
     if (Math.hypot(x - mind.lastX, z - mind.lastZ) > BOT.stuckMoveEpsilon) {
       mind.stuck = 0;

@@ -93,7 +93,7 @@ export class Fx {
       const a = Math.random() * Math.PI * 2;
       const b = Math.random() * Math.PI;
       const sp = 1.5 + Math.random() * 2.5;
-      this.spawn(x, y, z, Math.cos(a) * Math.sin(b) * sp, Math.cos(b) * sp + 1, Math.sin(a) * Math.sin(b) * sp, 0.3 + Math.random() * 0.25, 0.7 + Math.random() * 0.4, 0xffffff, -1.5, 1.2);
+      this.spawn(x, y, z, Math.cos(a) * Math.sin(b) * sp, Math.cos(b) * sp + 1, Math.sin(a) * Math.sin(b) * sp, 0.16 + Math.random() * 0.14, 0.6 + Math.random() * 0.35, 0xffffff, -1.5, 0.45);
     }
   }
 

@@ -4,6 +4,7 @@ import {
   Btn, CAMERA, CAPSULE_FOOT, COMBAT, CharacterId, FFA_COLORS, GameEvent, MAPS, MODES, ModeId, MotorEvents, MotorWorld, NET, PlayerInput, ProjKind, RENDER, SnapPickup, SnapPlayer, TEAM_COLORS, TICK_DT, WEAPONS, WeaponId,
   aimDirection, buildMapWorld, muzzleOf, rayCapsule, raycastStatic,
 } from '@splat/shared';
+import { sfx } from './audio/sfx';
 import { InputState } from './input';
 import { Connection, Snapshot, bracket } from './net/connection';
 import { Predictor } from './net/predictor';
@@ -22,6 +23,8 @@ interface Remote {
   teamShown: number;
   char: string;
 }
+
+const LAUNCH_SOUND = ['paint', 'plunger', 'chicken', 'bubble'] as const;
 
 export function colorForId(id: string): number {
   let h = 0;
@@ -245,7 +248,10 @@ export class Game {
     const selfId = this.net.sessionId;
     switch (e.t) {
       case 'shot':
-        if (e.by !== selfId) this.fx.tracer(e.fx, e.fy, e.fz, e.tx, e.ty, e.tz, e.color);
+        if (e.by !== selfId) {
+          this.fx.tracer(e.fx, e.fy, e.fz, e.tx, e.ty, e.tz, e.color);
+          sfx.at('paint', e.fx, e.fy, e.fz, 0.45);
+        }
         this.fx.splat(e.tx, e.ty, e.tz, e.color, e.hitWorld ? 4 : 2, 3);
         break;
       case 'hit': {
@@ -254,12 +260,17 @@ export class Game {
         const mineShot = e.by === selfId;
         const onMe = e.victim === selfId;
         if (screen && (mineShot || onMe)) this.hud.damageNumber(screen.x + (Math.random() - 0.5) * 30, screen.y, e.dmg, onMe);
-        if (mineShot && !onMe) this.hud.hitmarker(false);
+        if (mineShot && !onMe) {
+          this.hud.hitmarker(false);
+          sfx.play('hit', 0.6);
+        }
+        if (onMe) sfx.play('hurt', 0.7);
         this.remotes.get(e.victim)?.view.punch(3);
         break;
       }
       case 'boom': {
         this.fx.explosion(e.x, e.y, e.z, e.radius, e.color);
+        sfx.at('boom', e.x, e.y, e.z);
         const d = this.camera.position.distanceTo(this.projV.set(e.x, e.y, e.z));
         if (d < RENDER.shakeMaxDistance) this.shake = Math.max(this.shake, RENDER.shakeExplosion * (1 - d / RENDER.shakeMaxDistance));
         break;
@@ -267,10 +278,14 @@ export class Game {
       case 'kill': {
         const name = (id: string | null): string | null => (id ? (this.net.state.players.get(id)?.nick ?? '???') : null);
         this.hud.killfeed(name(e.by), name(e.victim) ?? '???', e.cause, e.by === selfId || e.victim === selfId);
-        if (e.by === selfId && e.victim !== selfId) this.hud.hitmarker(true);
+        if (e.by === selfId && e.victim !== selfId) {
+          this.hud.hitmarker(true);
+          sfx.play('kill', 0.7);
+        }
         const r = this.remotes.get(e.victim);
         if (r) {
           const pos = r.pos;
+          sfx.at(e.cause === 'fall' ? 'poof' : 'death', pos.x, pos.y, pos.z, 0.8);
           if (e.cause === 'fall') this.fx.poof(pos.x, pos.y, pos.z, 24);
           else {
             const ground = raycastStatic(this.mw, pos, { x: 0, y: -1, z: 0 }, 40);
@@ -281,11 +296,24 @@ export class Game {
         }
         break;
       }
-      case 'bubble':
-      case 'stick':
+      case 'bubble': {
+        const r = this.remotes.get(e.victim);
+        if (r) sfx.at('bubble', r.pos.x, r.pos.y, r.pos.z);
         break;
+      }
+      case 'stick':
+        sfx.at('stick', e.x, e.y, e.z);
+        break;
+      case 'launch': {
+        const r = this.remotes.get(e.by);
+        if (r && e.by !== selfId) sfx.at(LAUNCH_SOUND[e.weapon], r.pos.x, r.pos.y, r.pos.z, 0.8);
+        break;
+      }
       case 'pickup':
-        if (e.id === selfId) this.input.weaponSlot = e.weapon;
+        if (e.id === selfId) {
+          this.input.weaponSlot = e.weapon;
+          sfx.play('pickup', 0.8);
+        }
         break;
       case 'motor':
         if (e.id === selfId) break; // own moves were already predicted locally
@@ -303,9 +331,19 @@ export class Game {
   private applyMotorFx(id: string, kind: string, v: number): void {
     const r = this.remotes.get(id);
     if (!r) return;
-    if (kind === 'jump' || kind === 'djump' || kind === 'pad') r.view.punch(-8);
-    if (kind === 'land' || kind === 'bounce') r.view.land(v);
-    if (kind === 'dash') this.fx.poof(r.pos.x, r.pos.y - 0.5, r.pos.z, 5);
+    const { x, y, z } = r.pos;
+    if (kind === 'jump' || kind === 'djump' || kind === 'pad') {
+      r.view.punch(-8);
+      sfx.at(kind === 'pad' ? 'pad' : 'jump', x, y, z, 0.5);
+    }
+    if (kind === 'land' || kind === 'bounce') {
+      r.view.land(v);
+      sfx.at(kind === 'bounce' ? 'jelly' : 'land', x, y, z, 0.5);
+    }
+    if (kind === 'dash') {
+      this.fx.poof(x, y - 0.5, z, 5);
+      sfx.at('dash', x, y, z, 0.5);
+    }
   }
 
   private project(x: number, y: number, z: number): { x: number; y: number } | null {
@@ -380,11 +418,12 @@ export class Game {
     if (ev.jumped || ev.doubleJumped || ev.padded) r.view.punch(-8);
     if (ev.landed > COMBAT.landEventMinSpeed) r.view.land(ev.landed);
     if (ev.dashed) this.fx.poof(this.predictor.state.x, this.predictor.state.y - 0.5, this.predictor.state.z, 5);
-    this.motorSound(ev);
+    if (ev.jumped || ev.doubleJumped) sfx.play('jump', 0.45, ev.doubleJumped ? 1.3 : 1);
+    if (ev.padded) sfx.play('pad', 0.7);
+    if (ev.bounced) sfx.play('jelly', 0.7);
+    else if (ev.landed > COMBAT.landEventMinSpeed) sfx.play('land', 0.5);
+    if (ev.dashed) sfx.play('dash', 0.6);
   }
-
-  /** Sound hook, wired up by the audio milestone. */
-  protected motorSound(_ev: MotorEvents): void {}
 
   private localFire(): void {
     const me = this.me;
@@ -400,6 +439,7 @@ export class Game {
       const t = wall >= 0 ? wall : def.range;
       this.fx.tracer(m.x, m.y, m.z, m.x + d.x * t, m.y + d.y * t, m.z + d.z * t, colorForTeam(me));
     }
+    sfx.play(LAUNCH_SOUND[me.weapon], me.weapon === WeaponId.Paint ? 0.4 : 0.9);
     this.remotes.get(this.net.sessionId)?.view.punch(0.6);
   }
 
@@ -530,6 +570,9 @@ export class Game {
       this.camera.position.z += (Math.random() - 0.5) * this.shake;
       this.shake *= Math.exp(-RENDER.shakeDecay * dt);
     }
+    sfx.listener.x = this.camera.position.x;
+    sfx.listener.y = this.camera.position.y;
+    sfx.listener.z = this.camera.position.z;
     if (this.sun) {
       this.sun.position.set(base.x + 30, base.y + 60, base.z + 20);
       this.sun.target.position.set(base.x, base.y, base.z);
