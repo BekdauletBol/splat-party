@@ -16,7 +16,8 @@ async function main(): Promise<void> {
   app.get('/health', (_req, res) => {
     res.json({ ok: true });
   });
-  if (existsSync(clientDist)) {
+  const hasClient = existsSync(join(clientDist, 'index.html'));
+  if (hasClient) {
     app.use(express.static(clientDist));
     // Invite links (/?room=ABCDE) and any other path fall back to the SPA.
     app.get(/^\/(?!matchmake).*/, (_req, res) => res.sendFile(join(clientDist, 'index.html')));
@@ -25,7 +26,7 @@ async function main(): Promise<void> {
   const server = new Server({ transport: new WebSocketTransport({ server: createServer(app) }) });
   server.define(ROOM_NAME, SplatRoom);
   await server.listen(port, '0.0.0.0');
-  console.log(`[splat] listening on :${port}${existsSync(clientDist) ? ' (serving client)' : ''}`);
+  console.log(`[splat] listening on :${port}${hasClient ? ' (serving client)' : ''}`);
 }
 
 main().catch((e) => {

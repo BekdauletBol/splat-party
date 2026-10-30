@@ -1,25 +1,47 @@
-// In-match client: fixed-tick prediction, snapshot interpolation, camera.
+// In-match client: fixed-tick prediction, snapshot interpolation, camera, events.
 import * as THREE from 'three';
-import { CAMERA, CAPSULE_FOOT, CharacterId, MAPS, MSG, MotorWorld, NET, PlayerInput, RENDER, SnapPlayer, TICK_DT, buildMapWorld, raycastStatic } from '@splat/shared';
+import {
+  Btn, CAMERA, CAPSULE_FOOT, COMBAT, CharacterId, FFA_COLORS, GameEvent, MAPS, MODES, ModeId, MotorEvents, MotorWorld, NET, PlayerInput, ProjKind, RENDER, SnapPickup, SnapPlayer, TEAM_COLORS, TICK_DT, WEAPONS, WeaponId,
+  aimDirection, buildMapWorld, muzzleOf, rayCapsule, raycastStatic,
+} from '@splat/shared';
 import { InputState } from './input';
 import { Connection, Snapshot, bracket } from './net/connection';
 import { Predictor } from './net/predictor';
+import { CharacterView, buildChicken, buildWeaponModel } from './render/character';
+import { Fx } from './render/fx';
 import { buildMapView, buildSky } from './render/mapView';
-import { makeNickname } from './render/nickname';
-import { part } from './render/toon';
+import { part, toon } from './render/toon';
+import { Hud } from './ui/hud';
 
-interface RemoteView {
-  group: THREE.Group;
+interface Remote {
+  view: CharacterView;
+  pos: THREE.Vector3;
+  vel: THREE.Vector3;
+  wasAlive: boolean;
+  wasBubble: boolean;
+  teamShown: number;
+  char: string;
+}
+
+export function colorForId(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+  return FFA_COLORS[Math.abs(h) % FFA_COLORS.length];
 }
 
 export class Game {
-  private renderer: THREE.WebGLRenderer;
-  private scene = new THREE.Scene();
-  private camera = new THREE.PerspectiveCamera(CAMERA.fov, 1, 0.1, 800);
-  private input: InputState;
-  private mw!: MotorWorld;
-  private predictor!: Predictor;
-  private views = new Map<string, RemoteView>();
+  readonly renderer: THREE.WebGLRenderer;
+  readonly scene = new THREE.Scene();
+  readonly camera = new THREE.PerspectiveCamera(CAMERA.fov, 1, 0.1, 800);
+  readonly input: InputState;
+  readonly hud: Hud;
+  readonly fx: Fx;
+  mw!: MotorWorld;
+  predictor!: Predictor;
+  private remotes = new Map<string, Remote>();
+  private projViews = new Map<string, THREE.Object3D>();
+  private propViews = new Map<string, THREE.Object3D>();
+  private pickupViews = new Map<string, THREE.Object3D>();
   private seq = 0;
   private acc = 0;
   private lastFrame = performance.now();
@@ -29,19 +51,33 @@ export class Game {
   private right = new THREE.Vector3();
   private pivot = new THREE.Vector3();
   private look = new THREE.Vector3();
-  private mapGroup?: THREE.Object3D;
+  private projV = new THREE.Vector3();
+  private mapGroup = new THREE.Group();
+  private sun!: THREE.DirectionalLight;
   private running = false;
+  private localFireReady = 0;
+  private shake = 0;
+  private zoom = 0;
+  private lastHp = -1;
+  private aimYaw = 0;
+  private aimPitch = 0;
+  /** Latest authoritative copy of the local player. */
+  me: SnapPlayer | undefined;
 
-  constructor(private canvas: HTMLCanvasElement, private net: Connection) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  constructor(private canvas: HTMLCanvasElement, private net: Connection, uiRoot: HTMLElement) {
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, RENDER.pixelRatioCap.high));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.input = new InputState(canvas);
+    this.hud = new Hud(uiRoot);
+    this.fx = new Fx(this.scene);
     addEventListener('resize', this.resize);
     this.resize();
     canvas.addEventListener('click', () => this.input.lock());
+    this.input.onLockChange = (locked) => this.hud.setClickHint(!locked);
     net.onSnapshot = (s) => this.onSnapshot(s);
+    net.onEvent = (e) => this.onEvent(e);
   }
 
   private resize = (): void => {
@@ -63,63 +99,308 @@ export class Game {
     sun.shadow.mapSize.set(RENDER.shadowMapSize.high, RENDER.shadowMapSize.high);
     const f = RENDER.shadowFrustum + 10;
     Object.assign(sun.shadow.camera, { left: -f, right: f, top: f, bottom: -f, far: 160 });
+    sun.shadow.bias = -0.0005;
     this.scene.add(sun);
+    this.sun = sun;
     this.predictor = new Predictor(this.mw, 'pelmen');
   }
 
   start(): void {
     this.running = true;
+    this.hud.show(true);
+    this.hud.setClickHint(!this.input.locked);
     requestAnimationFrame(this.frame);
   }
 
+  private teamColor(p: SnapPlayer): number {
+    return p.team >= 0 ? TEAM_COLORS[p.team] : colorForId(p.id);
+  }
+
   private onSnapshot(s: Snapshot): void {
-    const me = s.players.get(this.net.sessionId);
-    if (me) {
-      this.predictor.char = me.char as CharacterId;
-      this.predictor.reconcile(me);
+    const selfId = this.net.sessionId;
+    this.me = s.players.get(selfId);
+    if (this.me) {
+      this.predictor.char = this.me.char as CharacterId;
+      this.predictor.reconcile(this.me);
     }
-    for (const [id, p] of s.players) if (!this.views.has(id)) this.addView(id, p);
-    for (const [id, v] of this.views) {
+    for (const [id, p] of s.players) {
+      let r = this.remotes.get(id);
+      if (r && r.char !== p.char) {
+        r.view.dispose();
+        this.remotes.delete(id);
+        r = undefined;
+      }
+      if (!r) {
+        const view = new CharacterView(p.char as CharacterId, this.teamColor(p), id === selfId ? undefined : p.nick);
+        this.scene.add(view.root);
+        r = { view, pos: new THREE.Vector3(p.x, p.y, p.z), vel: new THREE.Vector3(), wasAlive: p.alive, wasBubble: false, teamShown: p.team, char: p.char };
+        this.remotes.set(id, r);
+      }
+      if (r.teamShown !== p.team) {
+        r.teamShown = p.team;
+        r.view.setTeamColor(this.teamColor(p));
+      }
+    }
+    for (const [id, r] of this.remotes) {
       if (!s.players.has(id)) {
-        this.scene.remove(v.group);
-        this.views.delete(id);
+        r.view.dispose();
+        this.remotes.delete(id);
+      }
+    }
+    this.syncProps(s);
+    this.syncPickups(s);
+    this.syncProjectiles(s);
+    if (this.me) {
+      if (this.lastHp >= 0 && this.me.hp < this.lastHp) this.shake = Math.max(this.shake, RENDER.shakeHit);
+      this.lastHp = this.me.hp;
+      // Auto-switch away from an emptied slot.
+      const ammo = [1, this.me.ammo1, this.me.ammo2, this.me.ammo3];
+      if (!ammo[this.input.weaponSlot]) this.input.weaponSlot = this.me.weapon === this.input.weaponSlot ? WeaponId.Paint : this.input.weaponSlot;
+    }
+  }
+
+  private syncProps(s: Snapshot): void {
+    for (const [id, p] of s.props) {
+      if (this.propViews.has(id)) continue;
+      const geo = p.kind === 'ball' ? new THREE.SphereGeometry(p.radius, 24, 16) : new THREE.BoxGeometry(p.radius * 2, p.radius * 2, p.radius * 2);
+      const mesh = part(geo, p.color);
+      mesh.receiveShadow = true;
+      if (p.kind === 'ball') {
+        const stripe = new THREE.Mesh(new THREE.TorusGeometry(p.radius * 1.002, p.radius * 0.1, 6, 24), toon(0xffffff));
+        mesh.add(stripe);
+      }
+      this.scene.add(mesh);
+      this.propViews.set(id, mesh);
+    }
+  }
+
+  private syncPickups(s: Snapshot): void {
+    for (const [id, p] of s.pickups) {
+      let v = this.pickupViews.get(id);
+      if (!v) {
+        v = this.makePickup(p);
+        this.scene.add(v);
+        this.pickupViews.set(id, v);
+      }
+      v.visible = p.active;
+    }
+  }
+
+  private makePickup(p: SnapPickup): THREE.Object3D {
+    const g = new THREE.Group();
+    g.position.set(p.x, p.y, p.z);
+    const model = buildWeaponModel(p.weapon as WeaponId);
+    model.scale.setScalar(1.7);
+    model.position.z = 0.4;
+    g.add(model);
+    const halo = new THREE.Mesh(new THREE.TorusGeometry(0.9, 0.05, 6, 24), new THREE.MeshBasicMaterial({ color: 0xffd23f }));
+    halo.rotation.x = Math.PI / 2;
+    halo.position.y = -0.55;
+    g.add(halo);
+    return g;
+  }
+
+  private syncProjectiles(s: Snapshot): void {
+    for (const [id, p] of s.projectiles) {
+      if (this.projViews.has(id)) continue;
+      const v = this.makeProjectile(p.kind as ProjKind);
+      v.position.set(p.x, p.y, p.z);
+      this.scene.add(v);
+      this.projViews.set(id, v);
+    }
+    for (const [id, v] of this.projViews) {
+      if (!s.projectiles.has(id)) {
+        this.scene.remove(v);
+        this.projViews.delete(id);
       }
     }
   }
 
-  private addView(id: string, p: SnapPlayer): void {
-    const group = new THREE.Group();
-    const color = 0xff4fa3 + (Math.abs(hash(id)) % 0xffff);
-    const body = part(new THREE.SphereGeometry(0.72, 20, 14), id === this.net.sessionId ? 0xffd23f : color & 0xffffff);
-    body.position.y = 0.72 - CAPSULE_FOOT;
-    group.add(body);
-    if (id !== this.net.sessionId) {
-      const nick = makeNickname(p.nick);
-      nick.position.y = RENDER.nicknameHeight;
-      group.add(nick);
+  private makeProjectile(kind: ProjKind): THREE.Object3D {
+    switch (kind) {
+      case ProjKind.Chicken: {
+        const c = buildChicken();
+        c.scale.setScalar(1.3);
+        return c;
+      }
+      case ProjKind.Plunger: {
+        const g = new THREE.Group();
+        const cup = part(new THREE.SphereGeometry(0.28, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), 0xf25c54);
+        cup.rotation.x = Math.PI / 2;
+        cup.position.z = -0.45;
+        const stick = part(new THREE.CylinderGeometry(0.05, 0.05, 0.8, 8), 0xc98a4b);
+        stick.rotation.x = Math.PI / 2;
+        g.add(cup, stick);
+        return g;
+      }
+      case ProjKind.Bubble:
+        return new THREE.Mesh(new THREE.SphereGeometry(0.55, 16, 12), new THREE.MeshToonMaterial({ color: 0xbfefff, transparent: true, opacity: 0.55, depthWrite: false }));
+      case ProjKind.Toast:
+      default:
+        return part(new THREE.BoxGeometry(0.5, 0.5, 0.12), 0xd99a52);
     }
-    this.scene.add(group);
-    this.views.set(id, { group });
   }
 
-  private fixedTick(): void {
+  private onEvent(e: GameEvent): void {
+    const selfId = this.net.sessionId;
+    switch (e.t) {
+      case 'shot':
+        if (e.by !== selfId) this.fx.tracer(e.fx, e.fy, e.fz, e.tx, e.ty, e.tz, e.color);
+        this.fx.splat(e.tx, e.ty, e.tz, e.color, e.hitWorld ? 4 : 2, 3);
+        break;
+      case 'hit': {
+        this.fx.splat(e.x, e.y, e.z, e.color, 8, 5);
+        const screen = this.project(e.x, e.y + 0.8, e.z);
+        const mineShot = e.by === selfId;
+        const onMe = e.victim === selfId;
+        if (screen && (mineShot || onMe)) this.hud.damageNumber(screen.x + (Math.random() - 0.5) * 30, screen.y, e.dmg, onMe);
+        if (mineShot && !onMe) this.hud.hitmarker(false);
+        this.remotes.get(e.victim)?.view.punch(3);
+        break;
+      }
+      case 'boom': {
+        this.fx.explosion(e.x, e.y, e.z, e.radius, e.color);
+        const d = this.camera.position.distanceTo(this.projV.set(e.x, e.y, e.z));
+        if (d < RENDER.shakeMaxDistance) this.shake = Math.max(this.shake, RENDER.shakeExplosion * (1 - d / RENDER.shakeMaxDistance));
+        break;
+      }
+      case 'kill': {
+        const name = (id: string | null): string | null => (id ? (this.net.state.players.get(id)?.nick ?? '???') : null);
+        this.hud.killfeed(name(e.by), name(e.victim) ?? '???', e.cause, e.by === selfId || e.victim === selfId);
+        if (e.by === selfId && e.victim !== selfId) this.hud.hitmarker(true);
+        const r = this.remotes.get(e.victim);
+        if (r) {
+          const pos = r.pos;
+          if (e.cause === 'fall') this.fx.poof(pos.x, pos.y, pos.z, 24);
+          else {
+            const ground = raycastStatic(this.mw, pos, { x: 0, y: -1, z: 0 }, 40);
+            const groundY = ground >= 0 ? pos.y - ground + 0.2 : this.mw.map.killY;
+            this.fx.ragdoll(r.view.explodeIntoParts(), e.vx, e.vy, e.vz, groundY);
+            this.fx.poof(pos.x, pos.y, pos.z);
+          }
+        }
+        break;
+      }
+      case 'bubble':
+      case 'stick':
+        break;
+      case 'pickup':
+        if (e.id === selfId) this.input.weaponSlot = e.weapon;
+        break;
+      case 'motor':
+        if (e.id === selfId) break; // own moves were already predicted locally
+        this.applyMotorFx(e.id, e.kind, e.v);
+        break;
+      case 'bump':
+        this.remotes.get(e.id)?.view.punch(6);
+        this.fx.poof(e.x, e.y, e.z, 4);
+        break;
+      default:
+        break;
+    }
+  }
+
+  private applyMotorFx(id: string, kind: string, v: number): void {
+    const r = this.remotes.get(id);
+    if (!r) return;
+    if (kind === 'jump' || kind === 'djump' || kind === 'pad') r.view.punch(-8);
+    if (kind === 'land' || kind === 'bounce') r.view.land(v);
+    if (kind === 'dash') this.fx.poof(r.pos.x, r.pos.y - 0.5, r.pos.z, 5);
+  }
+
+  private project(x: number, y: number, z: number): { x: number; y: number } | null {
+    this.projV.set(x, y, z).project(this.camera);
+    if (this.projV.z > 1) return null;
+    return { x: (this.projV.x * 0.5 + 0.5) * innerWidth, y: (-this.projV.y * 0.5 + 0.5) * innerHeight };
+  }
+
+  /** Solve the fire direction: the bullet starts at the muzzle and must reach what the crosshair covers. */
+  private solveAim(px: number, py: number, pz: number): void {
+    const yaw = this.input.yaw;
+    const pitch = this.input.pitch;
+    const pivot = this.cameraPivot(px, py, pz);
+    const dir = aimDirection(yaw, pitch);
+    const dist = this.cameraDistance(pivot);
+    const ox = pivot.x - dir.x * dist;
+    const oy = pivot.y - dir.y * dist;
+    const oz = pivot.z - dir.z * dist;
+    let t = raycastStatic(this.mw, { x: ox + dir.x * dist, y: oy + dir.y * dist, z: oz + dir.z * dist }, dir, CAMERA.maxRayDistance);
+    t = t >= 0 ? t + dist : CAMERA.maxRayDistance;
+    for (const [id, r] of this.remotes) {
+      if (id === this.net.sessionId || !r.view.root.visible) continue;
+      const hit = rayCapsule(ox, oy, oz, dir.x, dir.y, dir.z, t, r.pos.x, r.pos.y, r.pos.z);
+      if (hit >= 0 && hit > dist) t = hit;
+    }
+    const tx = ox + dir.x * t;
+    const ty = oy + dir.y * t;
+    const tz = oz + dir.z * t;
+    const m = muzzleOf(px, py, pz, yaw);
+    const dx = tx - m.x;
+    const dy = ty - m.y;
+    const dz = tz - m.z;
+    const len = Math.hypot(dx, dy, dz) || 1;
+    this.aimYaw = Math.atan2(-dx, -dz);
+    this.aimPitch = Math.asin(dy / len);
+  }
+
+  private fixedTick(now: number): void {
     const seq = ++this.seq;
     const yaw = this.input.yaw;
+    const s = this.predictor.state;
+    this.solveAim(s.x, s.y, s.z);
+    const b = this.input.locked ? this.input.buttons() : 0;
     const input: PlayerInput = {
       s: seq,
-      mx: this.input.moveX(),
-      mz: this.input.moveZ(),
+      mx: this.input.locked ? this.input.moveX() : 0,
+      mz: this.input.locked ? this.input.moveZ() : 0,
       y: yaw,
-      ay: yaw,
-      ap: this.input.pitch,
-      b: this.input.buttons(),
+      ay: this.aimYaw,
+      ap: this.aimPitch,
+      b,
       w: this.input.weaponSlot,
-      v: Math.max(0, Math.round(this.net.renderTick(performance.now()))),
+      v: Math.max(0, Math.round(this.net.renderTick(now))),
     };
-    this.predictor.step(input);
+    const alive = this.me?.alive ?? true;
+    if (alive) this.onLocalMotor(this.predictor.step(input));
+    else {
+      this.predictor.pending.length = 0;
+      this.predictor.prev.x = s.x;
+      this.predictor.prev.y = s.y;
+      this.predictor.prev.z = s.z;
+    }
+    if (alive && b & Btn.Fire) this.localFire();
     this.recent.push(input);
     if (this.recent.length > NET.inputRedundancy) this.recent.shift();
     this.net.sendInputs(this.recent);
+  }
+
+  private onLocalMotor(ev: MotorEvents): void {
+    const r = this.remotes.get(this.net.sessionId);
+    if (!r) return;
+    if (ev.jumped || ev.doubleJumped || ev.padded) r.view.punch(-8);
+    if (ev.landed > COMBAT.landEventMinSpeed) r.view.land(ev.landed);
+    if (ev.dashed) this.fx.poof(this.predictor.state.x, this.predictor.state.y - 0.5, this.predictor.state.z, 5);
+    this.motorSound(ev);
+  }
+
+  /** Sound hook, wired up by the audio milestone. */
+  protected motorSound(_ev: MotorEvents): void {}
+
+  private localFire(): void {
+    const me = this.me;
+    if (!me) return;
+    const def = WEAPONS[me.weapon];
+    if (this.seq < this.localFireReady) return;
+    this.localFireReady = this.seq + def.cooldownTicks;
+    if (def.projectileSpeed === 0) {
+      const s = this.predictor.state;
+      const m = muzzleOf(s.x, s.y, s.z, this.input.yaw);
+      const d = aimDirection(this.aimYaw, this.aimPitch);
+      const wall = raycastStatic(this.mw, m, d, def.range);
+      const t = wall >= 0 ? wall : def.range;
+      this.fx.tracer(m.x, m.y, m.z, m.x + d.x * t, m.y + d.y * t, m.z + d.z * t, colorForTeam(me));
+    }
+    this.remotes.get(this.net.sessionId)?.view.punch(0.6);
   }
 
   private frame = (now: number): void => {
@@ -130,46 +411,141 @@ export class Game {
     this.acc += dt;
     while (this.acc >= TICK_DT) {
       this.acc -= TICK_DT;
-      this.fixedTick();
+      this.fixedTick(now);
     }
     this.predictor.decay(dt);
     this.predictor.renderPos(this.acc / TICK_DT, this.tmp);
-
-    const b = bracket(this.net.snapshots, this.net.renderTick(now));
-    for (const [id, v] of this.views) {
-      if (id === this.net.sessionId) {
-        v.group.position.set(this.tmp.x, this.tmp.y, this.tmp.z);
-      } else if (b) {
-        const pa = b[0].players.get(id);
-        const pb = b[1].players.get(id) ?? pa;
-        if (pa && pb) v.group.position.set(pa.x + (pb.x - pa.x) * b[2], pa.y + (pb.y - pa.y) * b[2], pa.z + (pb.z - pa.z) * b[2]);
-      }
-    }
-    this.updateCamera();
+    this.updateEntities(now, dt);
+    this.fx.update(dt);
+    this.updateCamera(dt);
+    const st = this.net.state;
+    const tick = st.tick as number;
+    this.hud.update(this.me, dt, tick);
+    const last = this.net.snapshots[this.net.snapshots.length - 1];
+    if (last) this.hud.scoreboard(this.input.scoreboard, [...last.players.values()], this.net.sessionId, MODES[st.mode as ModeId]?.teams ?? false);
     this.renderer.render(this.scene, this.camera);
   };
 
-  private updateCamera(): void {
-    const { yaw, pitch } = this.input;
-    this.forward.set(-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
+  private updateEntities(now: number, dt: number): void {
+    const selfId = this.net.sessionId;
+    const b = bracket(this.net.snapshots, this.net.renderTick(now));
+    for (const [id, r] of this.remotes) {
+      const isMe = id === selfId;
+      let snap: SnapPlayer | undefined;
+      if (isMe) {
+        snap = this.me;
+        if (snap?.alive !== false) r.pos.set(this.tmp.x, this.tmp.y, this.tmp.z);
+        const s = this.predictor.state;
+        r.vel.set(s.vx, s.vy, s.vz);
+      } else if (b) {
+        const pa = b[0].players.get(id);
+        const pb = b[1].players.get(id) ?? pa;
+        if (pa && pb) {
+          // Interpolation: positions are drawn ~100 ms in the past, between two real states.
+          if (pa.teleport === pb.teleport) r.pos.set(pa.x + (pb.x - pa.x) * b[2], pa.y + (pb.y - pa.y) * b[2], pa.z + (pb.z - pa.z) * b[2]);
+          else r.pos.set(pb.x, pb.y, pb.z);
+          r.vel.set(pb.vx, pb.vy, pb.vz);
+          snap = pb;
+        }
+      }
+      if (!snap) continue;
+      r.view.root.position.copy(r.pos);
+      const nowBubble = isMe ? this.predictor.state.bubble > 0 : snap.bubble > 0;
+      if (r.wasBubble && !nowBubble) this.fx.splat(r.pos.x, r.pos.y, r.pos.z, 0xbfefff, 14, 6);
+      r.wasBubble = nowBubble;
+      if (!r.wasAlive && snap.alive) this.fx.poof(r.pos.x, r.pos.y, r.pos.z, 8);
+      r.wasAlive = snap.alive;
+      r.view.update({
+        dt,
+        vx: r.vel.x,
+        vy: r.vel.y,
+        vz: r.vel.z,
+        grounded: isMe ? this.predictor.state.grounded : snap.grounded,
+        yaw: isMe ? this.input.yaw : snap.yaw,
+        aimPitch: isMe ? this.input.pitch : snap.ap,
+        weapon: snap.weapon,
+        bubble: nowBubble,
+        alive: snap.alive,
+      });
+    }
+    if (b) {
+      for (const [id, v] of this.propViews) {
+        const pa = b[0].props.get(id);
+        const pb = b[1].props.get(id) ?? pa;
+        if (!pa || !pb) continue;
+        v.position.set(pa.x + (pb.x - pa.x) * b[2], pa.y + (pb.y - pa.y) * b[2], pa.z + (pb.z - pa.z) * b[2]);
+        v.quaternion.set(pb.qx, pb.qy, pb.qz, pb.qw);
+      }
+      for (const [id, v] of this.projViews) {
+        const pb = b[1].projectiles.get(id) ?? b[0].projectiles.get(id);
+        const pa = b[0].projectiles.get(id) ?? pb;
+        if (!pa || !pb) continue;
+        v.position.set(pa.x + (pb.x - pa.x) * b[2], pa.y + (pb.y - pa.y) * b[2], pa.z + (pb.z - pa.z) * b[2]);
+        const speed = Math.hypot(pb.vx, pb.vy, pb.vz);
+        if (speed > 0.1) v.lookAt(v.position.x + pb.vx, v.position.y + pb.vy, v.position.z + pb.vz);
+        if (pb.kind === ProjKind.Chicken) this.fx.trail(v.position.x, v.position.y, v.position.z, 0xfff8e7);
+      }
+    }
+    const t = now * 0.002;
+    for (const v of this.pickupViews.values()) {
+      v.rotation.y = t;
+      v.children[0].position.y = Math.sin(t * 2) * 0.12;
+    }
+  }
+
+  private cameraPivot(x: number, y: number, z: number): THREE.Vector3 {
+    const yaw = this.input.yaw;
     this.right.set(Math.cos(yaw), 0, -Math.sin(yaw));
-    this.pivot.set(this.tmp.x, this.tmp.y + CAMERA.height, this.tmp.z).addScaledVector(this.right, CAMERA.shoulder);
-    const hit = raycastStatic(this.mw, this.pivot, { x: -this.forward.x, y: -this.forward.y, z: -this.forward.z }, CAMERA.distance);
-    const dist = hit >= 0 ? Math.max(0.4, hit - CAMERA.collisionMargin) : CAMERA.distance;
-    this.camera.position.copy(this.pivot).addScaledVector(this.forward, -dist);
-    this.camera.lookAt(this.look.copy(this.pivot).addScaledVector(this.forward, 20));
+    const shoulder = CAMERA.shoulder + (CAMERA.aimShoulder - CAMERA.shoulder) * this.zoom;
+    return this.pivot.set(x, y + CAMERA.height, z).addScaledVector(this.right, shoulder);
+  }
+
+  private cameraDistance(pivot: THREE.Vector3): number {
+    const { yaw, pitch } = this.input;
+    const d = aimDirection(yaw, pitch);
+    const want = CAMERA.distance + (CAMERA.aimDistance - CAMERA.distance) * this.zoom;
+    const hit = raycastStatic(this.mw, pivot, { x: -d.x, y: -d.y, z: -d.z }, want);
+    return hit >= 0 ? Math.max(0.4, hit - CAMERA.collisionMargin) : want;
+  }
+
+  private updateCamera(dt: number): void {
+    const aimed = this.input.aiming ? 1 : 0;
+    this.zoom += (aimed - this.zoom) * Math.min(1, dt * CAMERA.zoomLerp);
+    const d = aimDirection(this.input.yaw, this.input.pitch);
+    const r = this.remotes.get(this.net.sessionId);
+    const base = r ? r.pos : this.tmp;
+    const pivot = this.cameraPivot(base.x, base.y, base.z);
+    const dist = this.cameraDistance(pivot);
+    this.forward.set(d.x, d.y, d.z);
+    this.camera.position.copy(pivot).addScaledVector(this.forward, -dist);
+    this.camera.lookAt(this.look.copy(pivot).addScaledVector(this.forward, 20));
+    const fov = CAMERA.fov + (CAMERA.aimFov - CAMERA.fov) * this.zoom;
+    if (Math.abs(this.camera.fov - fov) > 0.01) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
+    if (this.shake > 0.001) {
+      this.camera.position.x += (Math.random() - 0.5) * this.shake;
+      this.camera.position.y += (Math.random() - 0.5) * this.shake;
+      this.camera.position.z += (Math.random() - 0.5) * this.shake;
+      this.shake *= Math.exp(-RENDER.shakeDecay * dt);
+    }
+    if (this.sun) {
+      this.sun.position.set(base.x + 30, base.y + 60, base.z + 20);
+      this.sun.target.position.set(base.x, base.y, base.z);
+      this.sun.target.updateMatrixWorld();
+    }
   }
 
   get debug(): { x: number; y: number; z: number; pending: number; corrections: number; err: number; views: number } {
-    return { ...this.tmp, pending: this.predictor.pending.length, corrections: this.predictor.corrections, err: this.predictor.lastError, views: this.views.size };
+    return { ...this.tmp, pending: this.predictor.pending.length, corrections: this.predictor.corrections, err: this.predictor.lastError, views: this.remotes.size };
   }
-  get tuneChannel(): (key: string, value: number) => void {
-    return (key, value) => this.net.send(MSG.Tune, { key, value });
+
+  get footOffset(): number {
+    return CAPSULE_FOOT;
   }
 }
 
-function hash(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return h;
+function colorForTeam(p: SnapPlayer): number {
+  return p.team >= 0 ? TEAM_COLORS[p.team] : colorForId(p.id);
 }

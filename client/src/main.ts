@@ -15,9 +15,8 @@ async function start(): Promise<void> {
   if (code) await net.join(code.toUpperCase(), opts);
   else await net.create(opts);
   history.replaceState(null, '', `?${new URLSearchParams({ ...Object.fromEntries(params), room: net.room.roomId })}`);
-  ui.innerHTML = `<div class="hint">Комната ${net.room.roomId} — клик для захвата мыши, откройте эту ссылку во второй вкладке</div>`;
   await new Promise<void>((res) => net.room.onStateChange.once(() => res()));
-  const game = new Game(canvas, net);
+  const game = new Game(canvas, net, ui);
   game.loadMap(net.state.map);
   game.start();
   Object.assign(window, { __game: game, __net: net });

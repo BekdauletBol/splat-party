@@ -174,6 +174,10 @@ export const COMBAT = {
   toastRadius: 0.3,
   toastGravity: 18,
   aimSpreadMul: 0.35,
+  hitboxPad: 0.2,
+  landEventMinSpeed: 6,
+  maxAmmo: 30,
+  selfDamageMul: 0.3,
   pickupRadius: 1.5,
   pickupRespawnSec: 15,
   muzzleForward: 0.6,
@@ -281,7 +285,7 @@ export const BOT = {
 };
 
 export const RENDER = {
-  outlineWidth: 0.035,
+  outlineWidth: 0.024,
   shadowMapSize: { low: 0, medium: 1024, high: 2048 },
   pixelRatioCap: { low: 1, medium: 1.5, high: 2 },
   shadowFrustum: 45,
